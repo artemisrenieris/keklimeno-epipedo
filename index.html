@@ -89,7 +89,15 @@
           <button id="miniPlayBtn" type="button">Start</button>
           <button id="miniResetBtn" type="button">Reset</button>
           <button id="miniSlowBtn" type="button">Slow</button>
+          <select id="graphModeSelect" aria-label="Επιλογή γραφικής">
+            <option value="v" selected>υ - t</option>
+            <option value="a">α - t</option>
+            <option value="s">S - t</option>
+            <option value="fnet">ΣF - t</option>
+            <option value="n">N - t</option>
+          </select>
         </div>
+        <canvas id="diagCanvas" width="980" height="460" aria-label="Diagnostics charts and formulas"></canvas>
 
         <div class="legend">
           <span><i class="mg"></i> mg</span>

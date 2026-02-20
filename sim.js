@@ -1,7 +1,10 @@
 const g = 10;
+const TRACE_MAX = 5000;
 
 const canvas = document.getElementById("simCanvas");
 const ctx = canvas.getContext("2d");
+const diagCanvas = document.getElementById("diagCanvas");
+const dctx = diagCanvas ? diagCanvas.getContext("2d") : null;
 
 const angleSlider = document.getElementById("angleSlider");
 const lengthSlider = document.getElementById("lengthSlider");
@@ -18,6 +21,7 @@ const slowBtn = document.getElementById("slowBtn");
 const miniPlayBtn = document.getElementById("miniPlayBtn");
 const miniResetBtn = document.getElementById("miniResetBtn");
 const miniSlowBtn = document.getElementById("miniSlowBtn");
+const graphModeSelect = document.getElementById("graphModeSelect");
 const phPanel = document.getElementById("phPanel");
 const phBody = document.getElementById("phBody");
 const phToggleBtn = document.getElementById("phToggleBtn");
@@ -59,8 +63,37 @@ const state = {
   slowMotion: false,
   timeScale: 1,
   a: 0,
+  Fnet: 0,
+  N: 0,
+  T: 0,
+  hCurrent: 0,
+  hMax: 0,
+  Ek: 0,
+  Ep: 0,
+  status: "Κατάσταση: Έτοιμο για εκκίνηση.",
+  graphMode: graphModeSelect ? graphModeSelect.value : "v",
+  trace: [],
+  yMin: -0.2,
+  yMax: 0.2,
+  tAxisMax: 8,
   lastTime: null
 };
+
+function graphSeriesConfig() {
+  switch (state.graphMode) {
+    case "a":
+      return { key: "a", label: "α(t) [m/s²]", color: "#6a4c93" };
+    case "s":
+      return { key: "s", label: "S(t) [m]", color: "#2a9d8f" };
+    case "fnet":
+      return { key: "fnet", label: "ΣF(t) [N]", color: "#d90429" };
+    case "n":
+      return { key: "n", label: "N(t) [N]", color: "#1d3557" };
+    case "v":
+    default:
+      return { key: "v", label: "υ(t) [m/s]", color: "#f77f00" };
+  }
+}
 
 function rampGeometry() {
   const theta = (state.thetaDeg * Math.PI) / 180;
@@ -92,42 +125,112 @@ function normalMagnitude(theta) {
   return state.m * g * Math.cos(theta) + Fh * Math.sin(theta);
 }
 
-function computeAcceleration() {
+function computeDynamics() {
   const theta = (state.thetaDeg * Math.PI) / 180;
   const Fh = activeForce();
-  const alongWithoutFriction = g * Math.sin(theta) - (Fh / state.m) * Math.cos(theta);
+  const N = normalMagnitude(theta);
+  const drive = state.m * g * Math.sin(theta) - Fh * Math.cos(theta);
+  const T = state.frictionOn ? state.mu * N : 0;
+  const rawAlong = drive - T;
 
-  if (!state.frictionOn) {
-    return Math.max(0, alongWithoutFriction);
+  state.a = Math.max(0, rawAlong / state.m);
+  state.Fnet = state.m * state.a;
+  state.N = N;
+  state.T = state.frictionOn ? T : 0;
+  state.hCurrent = Math.max(0, (state.planeLength - state.s) * Math.sin(theta));
+  state.hMax = state.planeLength * Math.sin(theta);
+  state.Ek = 0.5 * state.m * state.v * state.v;
+  state.Ep = state.m * g * state.hCurrent;
+
+  if (state.s >= state.planeLength) {
+    state.status = "Κατάσταση: Έφτασε στη βάση του κεκλιμένου.";
+  } else if (state.playing && state.a > 1e-6) {
+    state.status = "Κατάσταση: Επιταχυνόμενη κίνηση στο κεκλιμένο.";
+  } else if (state.playing && state.a <= 1e-6) {
+    state.status = "Κατάσταση: Οριακή ισορροπία δυνάμεων (α≈0).";
+  } else {
+    state.status = "Κατάσταση: Παύση προσομοίωσης.";
   }
+}
 
-  const nMag = normalMagnitude(theta);
-  const frictionAccel = (state.mu * nMag) / state.m;
-  return Math.max(0, alongWithoutFriction - frictionAccel);
+function pushHistory() {
+  state.trace.push({
+    t: state.elapsedTime,
+    v: state.v,
+    a: state.a,
+    s: state.s,
+    fnet: state.Fnet,
+    n: state.N
+  });
+  if (state.trace.length > TRACE_MAX) {
+    state.trace.shift();
+  }
+  updateTraceBounds();
+}
+
+function updateTraceBounds() {
+  if (state.trace.length === 0) {
+    state.yMin = -0.2;
+    state.yMax = 0.2;
+    state.tAxisMax = 8;
+    return;
+  }
+  const { key } = graphSeriesConfig();
+  const values = state.trace.map((p) => p[key]);
+  const vMin = Math.min(...values);
+  const vMax = Math.max(...values);
+  const span = Math.max(0.15, vMax - vMin);
+  const pad = 0.18 * span;
+  if (state.trace.length <= 1) {
+    state.yMin = vMin - pad;
+    state.yMax = vMax + pad;
+  } else {
+    state.yMin = Math.min(state.yMin, vMin - pad);
+    state.yMax = Math.max(state.yMax, vMax + pad);
+  }
+  state.tAxisMax = Math.max(8, state.elapsedTime);
+}
+
+function resetTraceAtCurrentTime() {
+  state.trace = [{
+    t: state.elapsedTime,
+    v: state.v,
+    a: state.a,
+    s: state.s,
+    fnet: state.Fnet,
+    n: state.N
+  }];
+  updateTraceBounds();
 }
 
 function updateReadouts() {
-  const theta = (state.thetaDeg * Math.PI) / 180;
   angleValue.textContent = state.thetaDeg.toFixed(0);
   lengthValue.textContent = state.planeLength.toFixed(1);
   massValue.textContent = state.m.toFixed(1);
   muValue.textContent = state.mu.toFixed(2);
   forceValue.textContent = activeForce().toFixed(1);
+
   accelValue.textContent = state.a.toFixed(2);
   phAccelValue.textContent = state.a.toFixed(2);
   velValue.textContent = state.v.toFixed(2);
   phVelValue.textContent = state.v.toFixed(2);
   dispValue.textContent = state.s.toFixed(2);
   phDispValue.textContent = state.s.toFixed(2);
-  currentHeightValue.textContent = ((state.planeLength - state.s) * Math.sin(theta)).toFixed(2);
-  phCurrentHeightValue.textContent = ((state.planeLength - state.s) * Math.sin(theta)).toFixed(2);
-  heightValue.textContent = (state.planeLength * Math.sin(theta)).toFixed(2);
-  phHeightValue.textContent = (state.planeLength * Math.sin(theta)).toFixed(2);
-  impactValue.textContent = state.impactSpeed === null ? "-" : `${state.impactSpeed.toFixed(2)} m/s`;
-  phImpactValue.textContent = state.impactSpeed === null ? "-" : `${state.impactSpeed.toFixed(2)} m/s`;
+  currentHeightValue.textContent = state.hCurrent.toFixed(2);
+  phCurrentHeightValue.textContent = state.hCurrent.toFixed(2);
+  heightValue.textContent = state.hMax.toFixed(2);
+  phHeightValue.textContent = state.hMax.toFixed(2);
+
+  const impactText = state.impactSpeed === null ? "-" : `${state.impactSpeed.toFixed(2)} m/s`;
+  impactValue.textContent = impactText;
+  phImpactValue.textContent = impactText;
 }
 
 function drawArrow(x, y, vx, vy, color, label) {
+  if (Math.hypot(vx, vy) < 1) {
+    return;
+  }
+
   const tipX = x + vx;
   const tipY = y + vy;
   ctx.strokeStyle = color;
@@ -158,6 +261,32 @@ function drawArrow(x, y, vx, vy, color, label) {
   ctx.fillText(label, tipX + 6, tipY - 6);
 }
 
+function drawCanvasStatus(text) {
+  if (!text) {
+    return;
+  }
+  const padX = 12;
+  const boxY = 10;
+  ctx.font = "bold 14px Arial";
+  const metrics = ctx.measureText(text);
+  const boxW = Math.min(canvas.width - 24, metrics.width + padX * 2);
+  const boxH = 28;
+  const boxX = (canvas.width - boxW) / 2;
+
+  ctx.fillStyle = "rgba(255,255,255,0.86)";
+  ctx.strokeStyle = "#b7c7da";
+  ctx.lineWidth = 1.2;
+  ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+  ctx.fillStyle = "#1d3557";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, boxX + boxW / 2, boxY + boxH / 2 + 0.5, boxW - padX * 2);
+  ctx.textAlign = "start";
+  ctx.textBaseline = "alphabetic";
+}
+
 function drawAngleMarker(geom) {
   const r = 46;
   const startAngle = -Math.PI;
@@ -175,7 +304,7 @@ function drawAngleMarker(geom) {
 
   ctx.fillStyle = "#1f3e64";
   ctx.font = "15px Arial";
-  ctx.fillText("\u03b8", tx, ty);
+  ctx.fillText("θ", tx, ty);
 }
 
 function drawScene() {
@@ -222,8 +351,8 @@ function drawScene() {
   if (state.showVectors) {
     const mg = state.m * g;
     const Fh = activeForce();
-    const nMag = normalMagnitude(geom.theta);
-    const tMag = state.frictionOn ? state.mu * nMag : 0;
+    const nMag = state.N;
+    const tMag = state.T;
     const mgSin = state.m * g * Math.sin(geom.theta);
     const mgCos = state.m * g * Math.cos(geom.theta);
 
@@ -246,7 +375,7 @@ function drawScene() {
         -geom.t.x * tMag * scale,
         -geom.t.y * tMag * scale,
         "#f4a261",
-        "\u03a4"
+        "T"
       );
     }
     drawArrow(
@@ -255,7 +384,7 @@ function drawScene() {
       geom.t.x * mgSin * scale,
       geom.t.y * mgSin * scale,
       "#2a9d8f",
-      "mg \u03b7\u03bc\u03b8"
+      "mg ημθ"
     );
     drawArrow(
       blockCenter.x,
@@ -263,7 +392,7 @@ function drawScene() {
       -geom.n.x * mgCos * scale,
       -geom.n.y * mgCos * scale,
       "#6c757d",
-      "mg \u03c3\u03c5\u03bd\u03b8"
+      "mg συνθ"
     );
 
     if (state.pushOn && Fh > 0) {
@@ -273,38 +402,183 @@ function drawScene() {
 
   ctx.fillStyle = "#0b1d3a";
   ctx.font = "15px Arial";
-  ctx.fillText(`\u03b8 = ${state.thetaDeg.toFixed(0)}\u00b0`, geom.start.x + 10, geom.start.y - 18);
+  ctx.fillText(`θ = ${state.thetaDeg.toFixed(0)}°`, geom.start.x + 10, geom.start.y - 18);
+  drawCanvasStatus(state.status);
 }
 
-function tick(timestamp) {
-  if (state.lastTime === null) {
-    state.lastTime = timestamp;
+function drawMiniSeriesBox(x, y, w, h, label, points, key, color, minVal, maxVal, tMax) {
+  dctx.strokeStyle = "#b5c5d9";
+  dctx.fillStyle = "rgba(255,255,255,0.9)";
+  dctx.lineWidth = 1.2;
+  dctx.fillRect(x, y, w, h);
+  dctx.strokeRect(x, y, w, h);
+
+  dctx.fillStyle = "#2a3f5e";
+  dctx.font = "bold 14px Arial";
+  dctx.fillText(label, x + 8, y + 15);
+
+  const plotX = x + 56;
+  const plotY = y + 22;
+  const plotW = w - 64;
+  const plotH = h - 28;
+
+  if (points.length < 2 || maxVal - minVal < 1e-9 || tMax <= 0) {
+    return;
   }
 
-  const dt = Math.min(0.033, (timestamp - state.lastTime) / 1000) * state.timeScale;
-  state.lastTime = timestamp;
+  const toX = (t) => plotX + (t / tMax) * plotW;
+  const toY = (v) => plotY + plotH - ((v - minVal) / (maxVal - minVal)) * plotH;
 
-  state.a = computeAcceleration();
+  const yTicks = 5;
+  dctx.font = "11px Arial";
+  dctx.fillStyle = "#34506f";
+  dctx.strokeStyle = "#d6e0eb";
+  dctx.lineWidth = 1;
+  for (let i = 0; i <= yTicks; i += 1) {
+    const frac = i / yTicks;
+    const yv = maxVal - frac * (maxVal - minVal);
+    const py = plotY + frac * plotH;
+    dctx.beginPath();
+    dctx.moveTo(plotX, py);
+    dctx.lineTo(plotX + plotW, py);
+    dctx.stroke();
+    dctx.fillText(yv.toFixed(2), x + 6, py + 4);
+  }
 
-  if (state.playing) {
-    const nextS = state.s + state.v * dt + 0.5 * state.a * dt * dt;
-    state.v += state.a * dt;
-    state.elapsedTime += dt;
-    state.s = Math.min(state.planeLength, nextS);
-
-    if (state.s >= state.planeLength) {
-      state.impactTime = state.elapsedTime;
-      state.impactSpeed = state.v;
-      state.s = state.planeLength;
-      state.v = 0;
-      state.playing = false;
+  dctx.strokeStyle = color;
+  dctx.lineWidth = 2.6;
+  dctx.beginPath();
+  points.forEach((p, i) => {
+    const px = toX(p.t);
+    const py = toY(p[key]);
+    if (i === 0) {
+      dctx.moveTo(px, py);
+    } else {
+      dctx.lineTo(px, py);
     }
+  });
+  dctx.stroke();
+
+  const latest = points[points.length - 1];
+  if (latest) {
+    const yNow = toY(latest[key]);
+    dctx.save();
+    dctx.setLineDash([5, 4]);
+    dctx.strokeStyle = "rgba(42, 63, 94, 0.55)";
+    dctx.lineWidth = 1.3;
+    dctx.beginPath();
+    dctx.moveTo(plotX, yNow);
+    dctx.lineTo(plotX + plotW, yNow);
+    dctx.stroke();
+    dctx.restore();
+
+    dctx.fillStyle = "#2a3f5e";
+    dctx.font = "bold 11px Arial";
+    dctx.textAlign = "right";
+    dctx.textBaseline = "middle";
+    dctx.fillText(latest[key].toFixed(2), plotX + plotW - 4, yNow - 8);
+    dctx.textAlign = "start";
+    dctx.textBaseline = "alphabetic";
+  }
+}
+
+function drawLiveBars(x, y, w, h) {
+  dctx.fillStyle = "rgba(255,255,255,0.92)";
+  dctx.strokeStyle = "#b5c5d9";
+  dctx.lineWidth = 1.2;
+  dctx.fillRect(x, y, w, h);
+  dctx.strokeRect(x, y, w, h);
+
+  const labels = ["|α|", "|υ|", "|ΣF|"];
+  const colors = ["#6a4c93", "#f77f00", "#d90429"];
+  const values = [Math.abs(state.a), Math.abs(state.v), Math.abs(state.Fnet)];
+  const maxAbs = Math.max(1, ...values);
+  const zeroY = y + h * 0.86;
+  const innerPad = 10;
+  const gap = 10;
+  const barAreaW = Math.max(90, w - innerPad * 2 - gap * 2);
+  const barW = Math.max(22, barAreaW / 3);
+  const startX = x + innerPad;
+
+  dctx.strokeStyle = "#c8d7e8";
+  dctx.beginPath();
+  dctx.moveTo(x + 8, zeroY);
+  dctx.lineTo(x + w - 8, zeroY);
+  dctx.stroke();
+
+  values.forEach((v, i) => {
+    const bh = (Math.abs(v) / maxAbs) * (h * 0.62);
+    const bx = startX + i * (barW + gap);
+    const by = zeroY - bh;
+    dctx.fillStyle = colors[i];
+    dctx.fillRect(bx, by, barW, bh);
+    dctx.fillStyle = "#233c5b";
+    dctx.font = "bold 12px Arial";
+    dctx.fillText(labels[i], bx, y + h - 10);
+    dctx.fillText(v.toFixed(2), bx, by - 5);
+  });
+}
+
+function drawFormulaBox(x, y, w, h) {
+  dctx.fillStyle = "rgba(255,255,255,0.93)";
+  dctx.strokeStyle = "#b5c5d9";
+  dctx.lineWidth = 1.2;
+  dctx.fillRect(x, y, w, h);
+  dctx.strokeRect(x, y, w, h);
+
+  dctx.fillStyle = "#223854";
+  dctx.font = "bold 14px Arial";
+  dctx.fillText("Live σχέσεις", x + 8, y + 15);
+  dctx.font = w < 300 ? "12px Arial" : "13px Arial";
+
+  const theta = (state.thetaDeg * Math.PI) / 180;
+  const Fh = activeForce();
+  const l1 = `N = mg·συνθ + F·ημθ = ${state.N.toFixed(2)} N`;
+  const l2 = `T = μN = ${state.T.toFixed(2)} N`;
+  const l3 = `ΣF = mα = ${state.m.toFixed(2)}·${state.a.toFixed(2)} = ${state.Fnet.toFixed(2)} N`;
+  const l4 = `α = gημθ - (F/m)συνθ - ${state.frictionOn ? "μN/m" : "0"} = ${state.a.toFixed(2)} m/s²`;
+  const l5 = `Eκ=${state.Ek.toFixed(1)} J, Eπ=${state.Ep.toFixed(1)} J, θ=${state.thetaDeg.toFixed(0)}°`;
+
+  dctx.fillText(l1, x + 8, y + 34);
+  dctx.fillText(l2, x + 8, y + 52);
+  dctx.fillText(l3, x + 8, y + 70);
+  dctx.fillText(l4, x + 8, y + 88);
+  dctx.fillText(l5, x + 8, y + 106);
+}
+
+function drawDiagnosticsPanel() {
+  if (!dctx) {
+    return;
   }
 
-  syncTransportLabels();
-  updateReadouts();
-  drawScene();
-  requestAnimationFrame(tick);
+  dctx.clearRect(0, 0, diagCanvas.width, diagCanvas.height);
+
+  const pad = 12;
+  const graphCfg = graphSeriesConfig();
+  const narrow = diagCanvas.width < 760;
+
+  if (narrow) {
+    const fullW = diagCanvas.width - pad * 2;
+    const graphH = Math.floor(diagCanvas.height * 0.47);
+    const barsH = Math.floor(diagCanvas.height * 0.23);
+    const formulaH = diagCanvas.height - graphH - barsH - pad * 4;
+    drawMiniSeriesBox(pad, pad, fullW, graphH, graphCfg.label, state.trace, graphCfg.key, graphCfg.color, state.yMin, state.yMax, state.tAxisMax);
+    drawLiveBars(pad, pad * 2 + graphH, fullW, barsH);
+    drawFormulaBox(pad, pad * 3 + graphH + barsH, fullW, formulaH);
+  } else {
+    const leftW = Math.floor(diagCanvas.width * 0.5);
+    const rightW = diagCanvas.width - leftW - pad * 3;
+    const gx = pad;
+    const gy = pad;
+    const gw = leftW;
+    const graphH = diagCanvas.height - pad * 2;
+    drawMiniSeriesBox(gx, gy, gw, graphH, graphCfg.label, state.trace, graphCfg.key, graphCfg.color, state.yMin, state.yMax, state.tAxisMax);
+
+    const rightX = gx + gw + pad;
+    const barsH = 165;
+    drawLiveBars(rightX, gy, rightW, barsH);
+    drawFormulaBox(rightX, gy + barsH + 8, rightW, diagCanvas.height - (gy + barsH + 8) - pad);
+  }
 }
 
 function resetMotion() {
@@ -329,11 +603,7 @@ function syncTransportLabels() {
 
 function runPlay() {
   if (state.s >= state.planeLength) {
-    state.s = 0;
-    state.v = 0;
-    state.elapsedTime = 0;
-    state.impactTime = null;
-    state.impactSpeed = null;
+    resetMotion();
   }
   state.playing = true;
   syncTransportLabels();
@@ -346,8 +616,12 @@ function runPause() {
 
 function runReset() {
   resetMotion();
+  computeDynamics();
+  resetTraceAtCurrentTime();
   syncTransportLabels();
   updateReadouts();
+  drawScene();
+  drawDiagnosticsPanel();
 }
 
 function toggleSlow() {
@@ -376,9 +650,48 @@ function syncInputs() {
     state.impactTime = null;
     state.impactSpeed = null;
   }
-  state.a = computeAcceleration();
+
+  computeDynamics();
   syncTransportLabels();
   updateReadouts();
+  if (!state.playing) {
+    resetTraceAtCurrentTime();
+  }
+}
+
+function tick(timestamp) {
+  if (state.lastTime === null) {
+    state.lastTime = timestamp;
+  }
+
+  const dt = Math.min(0.033, (timestamp - state.lastTime) / 1000) * state.timeScale;
+  state.lastTime = timestamp;
+
+  computeDynamics();
+
+  if (state.playing) {
+    const nextS = state.s + state.v * dt + 0.5 * state.a * dt * dt;
+    state.v += state.a * dt;
+    state.elapsedTime += dt;
+    state.s = Math.min(state.planeLength, nextS);
+
+    if (state.s >= state.planeLength) {
+      state.impactTime = state.elapsedTime;
+      state.impactSpeed = state.v;
+      state.s = state.planeLength;
+      state.v = 0;
+      state.playing = false;
+    }
+
+    computeDynamics();
+    pushHistory();
+  }
+
+  syncTransportLabels();
+  updateReadouts();
+  drawScene();
+  drawDiagnosticsPanel();
+  requestAnimationFrame(tick);
 }
 
 [angleSlider, lengthSlider, massSlider, muSlider, forceSlider].forEach((el) => {
@@ -425,6 +738,15 @@ miniSlowBtn.addEventListener("click", () => {
   toggleSlow();
 });
 
+if (graphModeSelect) {
+  graphModeSelect.addEventListener("change", () => {
+    state.graphMode = graphModeSelect.value;
+    state.yMin = -0.2;
+    state.yMax = 0.2;
+    updateTraceBounds();
+  });
+}
+
 if (window.matchMedia("(max-width: 700px)").matches) {
   setPhExpanded(false);
 } else {
@@ -432,4 +754,5 @@ if (window.matchMedia("(max-width: 700px)").matches) {
 }
 
 syncInputs();
+resetTraceAtCurrentTime();
 requestAnimationFrame(tick);

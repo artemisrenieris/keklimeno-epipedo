@@ -157,7 +157,7 @@ button:active {
 .sim-area {
   padding: 0.75rem;
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto 1fr;
   gap: 0.74rem;
 }
 
@@ -172,6 +172,15 @@ button:active {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: linear-gradient(180deg, #f8fbff 0%, #eef3fa 100%);
+}
+
+#diagCanvas {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 980 / 460;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fcfeff 0%, #eef4fb 100%);
 }
 
 .ph-panel {
@@ -239,7 +248,7 @@ button:active {
   background: rgb(255 255 255 / 92%);
   box-shadow: 0 4px 10px rgb(13 38 76 / 12%);
   display: grid;
-  grid-template-columns: repeat(3, auto);
+  grid-template-columns: repeat(4, auto);
   gap: 0.28rem;
 }
 
@@ -256,6 +265,16 @@ button:active {
   font-size: 0.78rem;
   font-weight: 800;
   background: rgb(0 95 115 / 92%);
+}
+
+.canvas-mini-controls select {
+  min-height: 34px;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid #b9c7db;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: #fff;
 }
 
 #miniSlowBtn.slow-on {
@@ -397,7 +416,7 @@ button:active {
 
   .canvas-mini-controls {
     padding: 0.24rem;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.22rem;
   }
 
@@ -405,6 +424,15 @@ button:active {
     min-height: 36px;
     padding: 0.24rem 0.3rem;
     font-size: 0.72rem;
+  }
+
+  .canvas-mini-controls select {
+    min-height: 36px;
+    font-size: 0.76rem;
+  }
+
+  #diagCanvas {
+    aspect-ratio: 980 / 520;
   }
 
 }
