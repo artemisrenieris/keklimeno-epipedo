@@ -3,8 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#005f73" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Κεκλιμένο Επίπεδο</title>
-    <link rel="stylesheet" href="style.css" />
+    <link rel="manifest" href="./manifest.json?v=1" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png?v=1" />
+    <link rel="stylesheet" href="./style.css?v=1" />
   </head>
   <body>
     <div class="top-copyright">© 2026 Artemis Renieris. All rights reserved.</div>
@@ -107,6 +112,7 @@
       </section>
     </main>
 
-    <script src="sim.js"></script>
+    <script defer src="./pwa.js?v=1"></script>
+    <script defer src="./sim.js?v=1"></script>
   </body>
 </html>
