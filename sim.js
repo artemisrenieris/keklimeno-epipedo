@@ -172,7 +172,7 @@ function updateTraceBounds() {
   if (state.trace.length === 0) {
     state.yMin = -0.2;
     state.yMax = 0.2;
-    state.tAxisMax = 8;
+    state.tAxisMax = 0.5;
     return;
   }
   const { key } = graphSeriesConfig();
@@ -188,7 +188,8 @@ function updateTraceBounds() {
     state.yMin = Math.min(state.yMin, vMin - pad);
     state.yMax = Math.max(state.yMax, vMax + pad);
   }
-  state.tAxisMax = Math.max(8, state.elapsedTime);
+  const lastT = state.trace[state.trace.length - 1].t;
+  state.tAxisMax = Math.max(0.5, lastT);
 }
 
 function resetTraceAtCurrentTime() {
@@ -679,7 +680,6 @@ function tick(timestamp) {
       state.impactTime = state.elapsedTime;
       state.impactSpeed = state.v;
       state.s = state.planeLength;
-      state.v = 0;
       state.playing = false;
     }
 
