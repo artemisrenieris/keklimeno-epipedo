@@ -1,4 +1,4 @@
-const CACHE_NAME = "keklimeno-epipedo-v1";
+const CACHE_NAME = "keklimeno-epipedo-v2";
 const PRECACHE_URLS = [
   "./",
   "./index.html",
